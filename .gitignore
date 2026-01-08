@@ -1,0 +1,9 @@
+# Binaries
+wkey
+voice-input
+
+# Environment variables
+.env
+
+# Direnv
+.direnv/

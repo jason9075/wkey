@@ -1,0 +1,233 @@
+Wayland Voice Input Tool — Engineering Guidelines (Agent-Facing)
+0. Scope Definition (Non-Negotiable)
+
+This project is NOT a full input method (IM).
+
+This project is a Wayland overlay utility triggered by compositor hotkey.
+
+Do NOT attempt to bypass Wayland security model.
+
+If a feature conflicts with Wayland constraints, DROP THE FEATURE.
+
+Success condition:
+
+Speech → Text exists
+
+Text is in clipboard
+
+Paste is best-effort only
+
+1. Process Model
+
+Single binary.
+
+Single instance only.
+
+No daemon / client split in MVP.
+
+Enforce instance lock (PID file or file lock).
+
+State machine is mandatory:
+
+Idle → Recording → Transcribing → Pasting → Exit
+
+
+Rules:
+
+Re-entry cancels current state.
+
+No parallel recordings.
+
+No background orphan processes.
+
+2. Hotkey Handling
+
+Do NOT listen for global hotkeys.
+
+Hotkey binding is handled by compositor.
+
+Program assumes execution == user intent.
+
+Violation of this rule is a hard failure.
+
+3. Audio Recording
+
+Audio backend: PipeWire.
+
+MVP MAY shell-out to external tools.
+
+Direct PipeWire client is OPTIONAL, not required.
+
+Audio format is FIXED:
+
+mono
+
+16kHz
+
+PCM WAV
+
+Do NOT:
+
+auto-detect format
+
+support multiple formats
+
+stream audio to STT
+
+Recording control:
+
+Toggle start/stop only.
+
+No VAD.
+
+No silence detection.
+
+4. UI Constraints
+
+UI is informational only.
+
+UI does NOT control logic.
+
+UI must NOT steal keyboard focus.
+
+Allowed UI responsibilities:
+
+Show state
+
+Show progress
+
+Show error
+
+Forbidden:
+
+Keyboard event handling
+
+Text input
+
+Hotkey handling
+
+If UI framework forces focus → UI must be delayed or suppressed.
+
+5. STT (OpenAI)
+
+Use non-streaming transcription.
+
+Entire audio is sent after recording completes.
+
+Language must be explicitly specified.
+
+Assume:
+
+API may timeout
+
+API may return empty result
+
+API may fail
+
+All STT operations:
+
+async
+
+cancellable
+
+timeout bounded
+
+Do NOT:
+
+post-process text
+
+auto-punctuate
+
+call LLM rewrite
+
+6. Clipboard & Paste
+
+Clipboard write is MANDATORY.
+
+Paste is:
+
+optional
+
+best-effort
+
+failure tolerant
+
+Rules:
+
+Clipboard write must succeed even if paste fails.
+
+Paste failure must NOT crash program.
+
+Paste module must be swappable or disable-able.
+
+Never assume:
+
+key injection always works
+
+compositor behavior is uniform
+
+7. Error Handling
+
+All errors must be categorized:
+
+Recording failure
+
+STT failure
+
+Empty transcription
+
+Paste failure
+
+Do NOT:
+
+silently ignore errors
+
+panic on recoverable failures
+
+UI must display error briefly before exit.
+
+8. Configuration & Security
+
+API key via environment variable ONLY.
+
+No config file for secrets.
+
+Logs must never include secrets.
+
+Logging levels:
+
+Debug: internal state
+
+Release: errors only
+
+9. Implementation Discipline (Agent Rules)
+
+Implement modules incrementally.
+
+Do NOT implement future features preemptively.
+
+Do NOT refactor for abstraction unless required by current scope.
+
+Hard rejections:
+
+Implementing Wayland input method protocol
+
+Global key interception
+
+Kernel-level input hooks
+
+Privileged access requests
+
+10. Completion Criteria (MVP)
+
+The task is COMPLETE when:
+
+Audio can be recorded
+
+Audio can be transcribed
+
+Text is written to clipboard
+
+Program exits cleanly
+
+Anything beyond this is post-MVP.
