@@ -2,6 +2,7 @@ package ui
 
 import (
 	"image/color"
+	"math"
 	"math/rand"
 	"time"
 
@@ -19,8 +20,9 @@ type UI struct {
 	status     *widget.Label
 	indicator  *canvas.Circle
 	visualizer *fyne.Container
-	bars       []*canvas.Rectangle
+	bars       []*canvas.LinearGradient
 	stopAnim   chan bool
+	currentLevel float64
 }
 
 func New() *UI {
@@ -37,25 +39,28 @@ func New() *UI {
 	indicator.Resize(fyne.NewSize(10, 10))
 
 	// Visualizer Bars
-	numBars := 10
-	bars := make([]*canvas.Rectangle, numBars)
+	numBars := 32 // Increased for higher resolution
+	bars := make([]*canvas.LinearGradient, numBars)
 	barObjects := make([]fyne.CanvasObject, numBars)
+	
 	for i := 0; i < numBars; i++ {
-		rect := canvas.NewRectangle(color.RGBA{R: 100, G: 100, B: 255, A: 255})
-		rect.SetMinSize(fyne.NewSize(15, 5)) // Min height
-		bars[i] = rect
-		barObjects[i] = rect
+		// Create a gradient for each bar
+		grad := canvas.NewLinearGradient(
+			color.RGBA{R: 0, G: 255, B: 255, A: 255},   // Cyan
+			color.RGBA{R: 138, G: 43, B: 226, A: 255}, // BlueViolet
+			0, // Vertical gradient
+		)
+		grad.SetMinSize(fyne.NewSize(6, 2)) // Thinner bars
+		bars[i] = grad
+		barObjects[i] = grad
 	}
-	// Use a Grid layout for bars, but we want them to align bottom. 
-	// Actually HBox is better, but we need to control height.
-	// Let's use a container with a custom layout or just HBox and update MinSize?
-	// HBox tries to fill height.
-	// Let's use a Grid with 1 row, numBars columns.
+
+	// Use a Grid layout with small spacing
 	visContainer := container.NewGridWithColumns(numBars, barObjects...)
 	
-	// Wrap visualizer in a container that gives it some height
+	// Wrap visualizer in a container that gives it some height and centering
 	visWrapper := container.NewPadded(visContainer)
-	visWrapper.Resize(fyne.NewSize(200, 40))
+	visWrapper.Resize(fyne.NewSize(240, 50))
 
 	content := container.New(layout.NewVBoxLayout(),
 		container.NewCenter(indicator),
@@ -79,34 +84,66 @@ func New() *UI {
 func (u *UI) startVisualizer() {
 	// Stop existing if any (though we usually stop before start)
 	go func() {
-		ticker := time.NewTicker(50 * time.Millisecond)
+		ticker := time.NewTicker(30 * time.Millisecond) // Faster update for smoothness
 		defer ticker.Stop()
 		
+		t := 0.0
 		for {
 			select {
 			case <-u.stopAnim:
 				// Reset bars
 				fyne.Do(func() {
 					for _, b := range u.bars {
-						b.SetMinSize(fyne.NewSize(15, 5))
-						b.FillColor = color.RGBA{R: 100, G: 100, B: 255, A: 255}
+						b.SetMinSize(fyne.NewSize(6, 2))
+						b.StartColor = color.RGBA{R: 0, G: 255, B: 255, A: 255}
+						b.EndColor = color.RGBA{R: 138, G: 43, B: 226, A: 255}
 						b.Refresh()
 					}
 				})
 				return
 			case <-ticker.C:
+				t += 0.1
 				fyne.Do(func() {
-					for _, b := range u.bars {
-						// Random height between 5 and 40
-						h := float32(5 + rand.Intn(35))
-						b.SetMinSize(fyne.NewSize(15, h))
-						// Randomize color slightly for effect
-						b.FillColor = color.RGBA{
-							R: 100, 
-							G: uint8(100 + rand.Intn(155)), 
-							B: 255, 
-							A: 255,
+					numBars := len(u.bars)
+					center := float64(numBars) / 2.0
+					
+					for i, b := range u.bars {
+						// Symmetric wave simulation
+						dist := math.Abs(float64(i) - center)
+						
+						// Combine sine waves for a "tech" feel
+						// Base wave
+						h1 := math.Sin(t + dist*0.5) 
+						// Secondary faster wave
+						h2 := math.Sin(t*2.0 - dist*0.8)
+						
+						// Normalize and scale
+						val := (h1 + h2 + 2) / 4.0 // 0.0 to 1.0 approx
+						
+						// Add some randomness for "noise" but keep it smooth-ish
+						noise := (rand.Float64() - 0.5) * 0.2
+						val += noise
+						
+						// Scale by audio level
+						// If silence (level < 0.01), keep it very low
+						level := u.currentLevel
+						if level < 0.05 {
+							level = 0.05 // Minimum "alive" hum
 						}
+						val *= level
+
+						if val < 0.05 { val = 0.05 }
+						if val > 1.0 { val = 1.0 }
+						
+						height := float32(val * 45.0) // Max height 45
+						
+						b.SetMinSize(fyne.NewSize(6, height))
+						
+						// Dynamic color based on height
+						// Higher bars get more purple/red, lower bars are cyan
+						r := uint8(val * 255)
+						b.EndColor = color.RGBA{R: r, G: 43, B: 226, A: 255}
+						
 						b.Refresh()
 					}
 					u.visualizer.Refresh()
@@ -124,9 +161,13 @@ func (u *UI) stopVisualizer() {
 	}
 }
 
+func (u *UI) SetAudioLevel(level float64) {
+	u.currentLevel = level
+}
+
 func (u *UI) ShowRecording() {
 	fyne.Do(func() {
-		u.status.SetText("Recording...")
+		u.status.SetText("") // Clear text for cleaner UI
 		u.indicator.FillColor = color.RGBA{R: 255, G: 0, B: 0, A: 255} // Red
 		u.indicator.Refresh()
 		u.window.Show()

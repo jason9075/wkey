@@ -41,6 +41,11 @@ Wkey requires an OpenAI API key to function. You must set the `OPENAI_API_KEY` e
 
 You can set this in your shell configuration or pass it when running the command.
 
+### Flags
+
+- `--keep-temp`: Do not delete the temporary recording file on exit. Useful for debugging audio issues.
+- `--mock-response "Your text here"`: Force a specific mock response for STT. Useful for testing without hitting the OpenAI API.
+
 ## Usage
 
 Wkey is designed to be triggered by a hotkey. It uses a "toggle" mechanism:

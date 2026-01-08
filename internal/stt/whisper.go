@@ -14,9 +14,10 @@ import (
 type Client struct {
 	apiKey       string
 	mockResponse string
+	verbose      bool
 }
 
-func NewClient(mockResponse string) (*Client, error) {
+func NewClient(mockResponse string, verbose bool) (*Client, error) {
 	apiKey := os.Getenv("OPENAI_API_KEY")
 	
 	// If mockResponse is provided, we don't strictly need the API key
@@ -29,7 +30,7 @@ func NewClient(mockResponse string) (*Client, error) {
 		mockResponse = "This is a mock transcription from dev mode."
 	}
 
-	return &Client{apiKey: apiKey, mockResponse: mockResponse}, nil
+	return &Client{apiKey: apiKey, mockResponse: mockResponse, verbose: verbose}, nil
 }
 
 type transcriptionResponse struct {
@@ -100,6 +101,10 @@ func (c *Client) Transcribe(filename string) (string, error) {
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if c.verbose {
+		fmt.Printf("API Response: %s\n", string(respBody))
 	}
 
 	if resp.StatusCode != http.StatusOK {
