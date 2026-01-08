@@ -9,28 +9,23 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 type Client struct {
 	apiKey       string
+	language     string
 	mockResponse string
 	verbose      bool
 }
 
-func NewClient(mockResponse string, verbose bool) (*Client, error) {
-	apiKey := os.Getenv("OPENAI_API_KEY")
-	
+func NewClient(apiKey string, language string, mockResponse string, verbose bool) (*Client, error) {
 	// If mockResponse is provided, we don't strictly need the API key
 	if mockResponse == "" && os.Getenv("APP_ENV") != "dev" && apiKey == "" {
-		return nil, fmt.Errorf("OPENAI_API_KEY environment variable is not set")
+		return nil, fmt.Errorf("OpenAI API key is missing. Please set OPENAI_API_KEY env var or configure it in ~/.config/wkey/config.json")
 	}
 
-	// Default mock for dev mode if not explicitly provided
-	if mockResponse == "" && os.Getenv("APP_ENV") == "dev" {
-		mockResponse = "This is a mock transcription from dev mode."
-	}
-
-	return &Client{apiKey: apiKey, mockResponse: mockResponse, verbose: verbose}, nil
+	return &Client{apiKey: apiKey, language: language, mockResponse: mockResponse, verbose: verbose}, nil
 }
 
 type transcriptionResponse struct {
@@ -43,6 +38,15 @@ type transcriptionResponse struct {
 func (c *Client) Transcribe(filename string) (string, error) {
 	if c.mockResponse != "" {
 		return c.mockResponse, nil
+	}
+
+	if c.verbose {
+		keyLen := len(c.apiKey)
+		maskedKey := "missing"
+		if keyLen > 8 {
+			maskedKey = c.apiKey[:4] + "..." + c.apiKey[keyLen-4:]
+		}
+		fmt.Printf("Transcribing %s (Language: %s, API Key: %s)\n", filename, c.language, maskedKey)
 	}
 
 	file, err := os.Open(filename)
@@ -70,10 +74,8 @@ func (c *Client) Transcribe(filename string) (string, error) {
 		return "", fmt.Errorf("failed to write model field: %w", err)
 	}
 	
-	// Add language field (optional, but requested to avoid auto-detect issues)
-	// Defaulting to zh-TW as per request example, but maybe configurable?
-	// User said: "Default specify language (e.g. zh or zh-TW)"
-	err = writer.WriteField("language", "zh") 
+	// Add language field
+	err = writer.WriteField("language", c.language) 
 	if err != nil {
 		return "", fmt.Errorf("failed to write language field: %w", err)
 	}
@@ -91,7 +93,9 @@ func (c *Client) Transcribe(filename string) (string, error) {
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 	req.Header.Set("Authorization", "Bearer "+c.apiKey)
 
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
@@ -103,12 +107,21 @@ func (c *Client) Transcribe(filename string) (string, error) {
 		return "", fmt.Errorf("failed to read response body: %w", err)
 	}
 
-	if c.verbose {
-		fmt.Printf("API Response: %s\n", string(respBody))
+	if c.verbose || resp.StatusCode != http.StatusOK {
+		fmt.Printf("API Status: %d\n", resp.StatusCode)
+		if len(respBody) > 0 {
+			fmt.Printf("API Response: %s\n", string(respBody))
+		}
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(respBody))
+		if resp.StatusCode == http.StatusUnauthorized {
+			return "", fmt.Errorf("Invalid API Key")
+		}
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return "", fmt.Errorf("Rate Limit Exceeded")
+		}
+		return "", fmt.Errorf("API Error: %d", resp.StatusCode)
 	}
 
 	var result transcriptionResponse

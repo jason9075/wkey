@@ -38,3 +38,17 @@ func Paste() error {
 	}
 	return nil
 }
+// Type uses wtype to type the text directly
+func Type(text string) error {
+	// Check if wtype is available
+	_, err := exec.LookPath("wtype")
+	if err != nil {
+		return fmt.Errorf("wtype not found: %w", err)
+	}
+
+	cmd := exec.Command("wtype", text)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to run wtype: %w", err)
+	}
+	return nil
+}

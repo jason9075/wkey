@@ -1,20 +1,21 @@
 package main
 
 import (
-"flag"
-"fmt"
-"os"
-"os/signal"
-"path/filepath"
-"strconv"
-"syscall"
-"time"
-"wkey/internal/audio"
-"wkey/internal/clipboard"
-"wkey/internal/stt"
-"wkey/internal/ui"
+	"flag"
+	"fmt"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"syscall"
+	"time"
 
-"github.com/joho/godotenv"
+	"wkey/internal/audio"
+	"wkey/internal/clipboard"
+	"wkey/internal/config"
+	"wkey/internal/stt"
+	"wkey/internal/ui"
 )
 
 const pidFileName = "voice-input.pid"
@@ -28,10 +29,15 @@ func getPidFilePath() string {
 	return filepath.Join(dir, pidFileName)
 }
 
-func main() {
-	// Load .env file (ignore error if not found, as env vars might be set otherwise)
-	_ = godotenv.Load()
+func getFileSize(path string) int64 {
+	stat, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return stat.Size()
+}
 
+func main() {
 	pidFile := getPidFilePath()
 
 	// Parse flags
@@ -40,15 +46,47 @@ func main() {
 	verbose := flag.Bool("verbose", false, "Enable verbose output")
 	flag.Parse()
 
+	// Load Config
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		fmt.Printf("Warning: Failed to load config: %v\n", err)
+	}
+
+	defer fmt.Println("[Main] Exiting main function")
+
+	// Setup Signal Handling EARLY to prevent race condition
+	stopChan := make(chan struct{})
+	doneChan := make(chan struct{}) // New: to ensure main waits for logic
+	sigChan := make(chan os.Signal, 1)
+	// Listen for INT, TERM (for actual kills) and USR1 (for our toggle)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGUSR1)
+
+	go func() {
+		first := true
+		for sig := range sigChan {
+			fmt.Printf("\n[Main] Received signal: %v\n", sig)
+			if sig == syscall.SIGUSR1 || sig == syscall.SIGTERM || sig == syscall.SIGINT {
+				if first {
+					fmt.Printf("[Main] Signaling stopChan...\n")
+					close(stopChan)
+					first = false
+				} else {
+					fmt.Printf("[Main] Subsequent signal ignored to allow transcription to finish\n")
+				}
+			}
+		}
+	}()
+
 	// 1. Check for existing instance (Toggle Logic)
 	if content, err := os.ReadFile(pidFile); err == nil {
-		pid, err := strconv.Atoi(string(content))
+		pidStr := strings.TrimSpace(string(content))
+		pid, err := strconv.Atoi(pidStr)
 		if err == nil {
-			// Process exists, send SIGTERM
+			// Process exists, send SIGUSR1 (less likely to be intercepted as "kill")
 			proc, err := os.FindProcess(pid)
 			if err == nil {
-				// Send signal to stop recording
-				err := proc.Signal(syscall.SIGTERM)
+				fmt.Printf("[Main] Signaling existing process %d with SIGUSR1\n", pid)
+				err := proc.Signal(syscall.SIGUSR1)
 				if err == nil {
 					// Successfully signaled, exit this instance
 					return
@@ -62,6 +100,7 @@ func main() {
 	// 2. Start New Instance
 	// Write PID
 	pid := os.Getpid()
+	fmt.Printf("[Main] Starting new instance (PID: %d)\n", pid)
 	if err := os.WriteFile(pidFile, []byte(strconv.Itoa(pid)), 0644); err != nil {
 		fmt.Printf("Failed to write PID file: %v\n", err)
 		return
@@ -69,7 +108,7 @@ func main() {
 	defer os.Remove(pidFile)
 
 	// Init UI
-	u := ui.New()
+	u := ui.New(cfg)
 
 	// Init Audio
 	recorder := audio.NewRecorder()
@@ -85,21 +124,24 @@ func main() {
 	}
 
 	// Init STT
-	sttClient, err := stt.NewClient(*mockResponse, *verbose)
+	sttClient, err := stt.NewClient(cfg.OpenAIAPIKey, cfg.Language, *mockResponse, *verbose)
 	// We check err later in the goroutine to allow UI to show error
 
 	// Logic Goroutine
 	go func() {
 		if err != nil {
-			u.ShowError("API Key Error")
+			fmt.Printf("[Logic] STT Client Init Error: %v\n", err)
+			u.ShowError("Missing API Key")
 			time.Sleep(3 * time.Second)
 			u.Quit()
 			return
 		}
 
 		// Start Recording
+		fmt.Printf("[Logic] Starting recording...\n")
 		u.ShowRecording()
 		if err := recorder.Start(tmpFile, u.SetAudioLevel); err != nil {
+			fmt.Printf("[Logic] Recorder Start Error: %v\n", err)
 			u.ShowError("Rec Error: " + err.Error())
 			time.Sleep(3 * time.Second)
 			u.Quit()
@@ -107,30 +149,32 @@ func main() {
 		}
 
 		// Wait for Stop Signal or Timeout (60s)
-		sigChan := make(chan os.Signal, 1)
-		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
 		select {
-		case <-sigChan:
-			// User stopped manually
+		case <-stopChan:
+			fmt.Printf("[Logic] Stop signal received via stopChan\n")
 		case <-time.After(60 * time.Second):
-			// Timeout reached
+			fmt.Printf("[Logic] Recording timeout (60s) reached\n")
 			u.ShowError("Timeout (60s)")
 			// Proceed to stop and transcribe
 		}
 
 		// Stop Recording
+		fmt.Printf("[Logic] Stopping recorder...\n")
 		recorder.Stop()
+		fmt.Printf("[Logic] Recorder stopped. File size: %d bytes\n", getFileSize(tmpFile))
 		u.ShowTranscribing()
 
 		// Transcribe
+		fmt.Printf("[Logic] Starting transcription...\n")
 		text, err := sttClient.Transcribe(tmpFile)
 		if err != nil {
-			u.ShowError("STT Error: " + err.Error())
+			fmt.Printf("[Logic] Transcription Error: %v\n", err)
+			u.ShowError(err.Error())
 			time.Sleep(3 * time.Second)
 			u.Quit()
 			return
 		}
+		fmt.Printf("[Logic] Transcription finished. Result: %q\n", text)
 
 		if text == "" {
 			u.ShowError("No speech detected")
@@ -140,19 +184,26 @@ func main() {
 		}
 
 		// Clipboard & Paste
-		if err := clipboard.CopyToClipboard(text); err != nil {
-			u.ShowError("Copy Failed")
+		fmt.Printf("[Logic] Hiding UI to restore focus...\n")
+		u.Hide()
+		time.Sleep(500 * time.Millisecond) // Increased delay for focus restoration
+
+		fmt.Printf("[Logic] Typing text directly to focus using wtype...\n")
+		if err := clipboard.Type(text); err != nil {
+			fmt.Printf("[Logic] Type Failed: %v\n", err)
+			u.ShowError("Type Failed")
+			time.Sleep(2 * time.Second)
 		} else {
-			if err := clipboard.Paste(); err != nil {
-				u.ShowError("Copied (Paste Failed)")
-			} else {
-				u.ShowDone()
-			}
+			fmt.Printf("[Logic] Type successful\n")
 		}
 
-		time.Sleep(1 * time.Second)
+		fmt.Printf("[Logic] Done. Quitting UI...\n")
 		u.Quit()
+		close(doneChan)
 	}()
 
 	u.Run()
+	fmt.Println("[Main] u.Run() returned")
+	<-doneChan
+	fmt.Println("[Main] doneChan closed, exiting")
 }

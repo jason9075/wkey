@@ -37,9 +37,37 @@
 
 ## Configuration
 
-Wkey requires an OpenAI API key to function. You must set the `OPENAI_API_KEY` environment variable.
+Wkey requires an OpenAI API key to function. You can provide this in two ways:
 
-You can set this in your shell configuration or pass it when running the command.
+1.  **Environment Variable**: Set `OPENAI_API_KEY`.
+2.  **Config File**: Create `~/.config/wkey/config.json`.
+
+### Config File Example
+
+Create the file `~/.config/wkey/config.json`:
+
+```json
+{
+  "openai_api_key": "sk-...",
+  "language": "zh",
+  "visual": {
+    "bar_count": 32,
+    "bar_color_start": "#00FFFF",
+    "bar_color_end": "#8A2BE2",
+    "animation_speed": 1.0
+  }
+}
+```
+
+### Configuration Options
+
+- **openai_api_key**: Your OpenAI API key.
+- **language**: The language for transcription (e.g., `zh`, `zh-TW`, `en`). Defaults to `zh`.
+- **visual**:
+  - **bar_count**: Number of bars in the visualizer (default: 32).
+  - **bar_color_start**: Start color gradient in hex (default: "#00FFFF").
+  - **bar_color_end**: End color gradient in hex (default: "#8A2BE2").
+  - **animation_speed**: Animation speed multiplier (default: 1.0).
 
 ### Flags
 
@@ -62,14 +90,6 @@ bind = SUPER, V, exec, OPENAI_API_KEY=sk-your-key-here /path/to/wkey
 ```
 
 *Note: It is recommended to use a script or a secrets manager to handle your API key securely instead of hardcoding it in the config.*
-
-### Sway Configuration
-
-Add the following to your `config`:
-
-```ini
-bindsym Mod4+v exec OPENAI_API_KEY=sk-your-key-here /path/to/wkey
-```
 
 ## Troubleshooting
 
