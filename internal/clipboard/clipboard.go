@@ -1,54 +1,42 @@
 package clipboard
 
 import (
+	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 )
 
-// CopyToClipboard writes the text to the Wayland clipboard using wl-copy
+// CopyToClipboard writes the text to the Wayland clipboard using wl-copy.
+// It runs in the background to avoid blocking the main process.
 func CopyToClipboard(text string) error {
 	cmd := exec.Command("wl-copy")
+	cmd.Env = os.Environ()
 	cmd.Stdin = strings.NewReader(text)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to run wl-copy: %w", err)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	// Use Start instead of Run to avoid hanging.
+	// wl-copy stays alive to serve the clipboard content.
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start wl-copy: %w, stderr: %s", err, stderr.String())
 	}
+
+	// We don't Wait() here because wl-copy needs to remain running.
 	return nil
 }
 
-// Paste triggers a paste action using wtype (Ctrl+V)
+// Paste triggers the most common paste shortcuts for both GUI and Terminals.
+// We use Ctrl+Shift+V as it's widely supported in modern Linux apps and terminals.
 func Paste() error {
-	// wtype -M ctrl -k v -m ctrl
-	// -M ctrl: press modifier
-	// -k v: press key v
-	// -m ctrl: release modifier (optional if -M implies hold, but wtype usually needs explicit release or just -M for modifier)
-	// Actually wtype syntax: wtype -M ctrl -k v -m ctrl (release)
-	// Or simpler: wtype -M ctrl -k v
-	// Let's try: wtype -M ctrl -k v -m ctrl
-	
-	// Check if wtype is available
-	_, err := exec.LookPath("wtype")
-	if err != nil {
+	if _, err := exec.LookPath("wtype"); err != nil {
 		return fmt.Errorf("wtype not found: %w", err)
 	}
 
-	cmd := exec.Command("wtype", "-M", "ctrl", "-k", "v", "-m", "ctrl")
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to run wtype: %w", err)
-	}
-	return nil
-}
-// Type uses wtype to type the text directly
-func Type(text string) error {
-	// Check if wtype is available
-	_, err := exec.LookPath("wtype")
-	if err != nil {
-		return fmt.Errorf("wtype not found: %w", err)
-	}
-
-	cmd := exec.Command("wtype", text)
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("failed to run wtype: %w", err)
-	}
-	return nil
+	// Use Ctrl+Shift+V. This works in Kitty and most modern GUI apps (as paste-plain-text).
+	// Avoiding sending both Ctrl+V and Ctrl+Shift+V to prevent double-pasting in browsers.
+	cmd := exec.Command("wtype", "-M", "ctrl", "-M", "shift", "-k", "v", "-m", "shift", "-m", "ctrl")
+	cmd.Env = os.Environ()
+	return cmd.Run()
 }

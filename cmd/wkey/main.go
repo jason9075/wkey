@@ -186,15 +186,19 @@ func main() {
 		// Clipboard & Paste
 		fmt.Printf("[Logic] Hiding UI to restore focus...\n")
 		u.Hide()
-		time.Sleep(500 * time.Millisecond) // Increased delay for focus restoration
+		time.Sleep(600 * time.Millisecond) // Wait for focus to return to original window
 
-		fmt.Printf("[Logic] Typing text directly to focus using wtype...\n")
-		if err := clipboard.Type(text); err != nil {
-			fmt.Printf("[Logic] Type Failed: %v\n", err)
-			u.ShowError("Type Failed")
-			time.Sleep(2 * time.Second)
-		} else {
-			fmt.Printf("[Logic] Type successful\n")
+		fmt.Printf("[Logic] Copying text to clipboard and triggering paste...\n")
+		if err := clipboard.CopyToClipboard(text); err != nil {
+			fmt.Printf("[Logic] Clipboard Copy Failed: %v\n", err)
+		}
+
+		// Give wl-copy some time to register with the compositor before we trigger paste
+		time.Sleep(400 * time.Millisecond)
+
+		// Trigger paste shortcuts
+		if err := clipboard.Paste(); err != nil {
+			fmt.Printf("[Logic] Paste Trigger Failed: %v\n", err)
 		}
 
 		fmt.Printf("[Logic] Done. Quitting UI...\n")
