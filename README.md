@@ -19,21 +19,38 @@
 
 ## Installation
 
-1.  Clone the repository:
-    ```bash
-    git clone https://github.com/yourusername/wkey.git
-    cd wkey
-    ```
+### Nix (Recommended)
 
-2.  Build the binary:
-    ```bash
-    go build -o wkey ./cmd/wkey
-    ```
+If you are using Nix, you can run `wkey` directly or install it via Flakes.
 
-3.  Move the binary to your PATH (optional):
-    ```bash
-    sudo mv wkey /usr/local/bin/
-    ```
+**Run directly:**
+```bash
+nix run github:jason9075/wkey
+```
+
+**Install to profile:**
+```bash
+nix profile install github:jason9075/wkey
+```
+
+**Add to NixOS configuration:**
+```nix
+{
+  inputs.wkey.url = "github:jason9075/wkey";
+  # ...
+  outputs = { self, nixpkgs, wkey }: {
+    nixosConfigurations.my-pc = nixpkgs.lib.nixosSystem {
+      modules = [
+        ({ pkgs, ... }: {
+          environment.systemPackages = [ wkey.packages.${pkgs.system}.default ];
+        })
+      ];
+    };
+  };
+}
+```
+
+### Manual Installation
 
 ## Configuration
 
