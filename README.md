@@ -72,6 +72,10 @@ Create the file `~/.config/wkey/config.json`:
     "bar_color_start": "#00FFFF",
     "bar_color_end": "#8A2BE2",
     "animation_speed": 1.0
+  },
+  "focus": {
+    "get_window_cmd": "hyprctl activewindow -j | jq -r .address",
+    "restore_focus_cmd": "hyprctl dispatch focuswindow address:{{.Output}}"
   }
 }
 ```
@@ -85,6 +89,9 @@ Create the file `~/.config/wkey/config.json`:
   - **bar_color_start**: Start color gradient in hex (default: "#00FFFF").
   - **bar_color_end**: End color gradient in hex (default: "#8A2BE2").
   - **animation_speed**: Animation speed multiplier (default: 1.0).
+- **focus** (Optional):
+  - **get_window_cmd**: Command to capture current window info (e.g., window address) before recording.
+  - **restore_focus_cmd**: Command to restore focus after recording. Use `{{.Output}}` as a placeholder for the output of `get_window_cmd`.
 
 ### Flags
 

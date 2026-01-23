@@ -14,10 +14,16 @@ type VisualConfig struct {
 	AnimationSpeed float64 `json:"animation_speed"`
 }
 
+type FocusConfig struct {
+	GetWindowCmd    string `json:"get_window_cmd"`
+	RestoreFocusCmd string `json:"restore_focus_cmd"`
+}
+
 type Config struct {
 	OpenAIAPIKey string       `json:"openai_api_key"`
 	Language     string       `json:"language"`
 	Visual       VisualConfig `json:"visual"`
+	Focus        FocusConfig  `json:"focus"`
 }
 
 func LoadConfig() (*Config, error) {

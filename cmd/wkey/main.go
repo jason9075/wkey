@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"os/exec"
+
 	"wkey/internal/audio"
 	"wkey/internal/clipboard"
 	"wkey/internal/config"
@@ -127,6 +129,9 @@ func main() {
 	sttClient, err := stt.NewClient(cfg.OpenAIAPIKey, cfg.Language, *mockResponse, *verbose)
 	// We check err later in the goroutine to allow UI to show error
 
+	// Focus Management State
+	var lastWindowOutput string
+
 	// Logic Goroutine
 	go func() {
 		if err != nil {
@@ -135,6 +140,18 @@ func main() {
 			time.Sleep(3 * time.Second)
 			u.Quit()
 			return
+		}
+
+		// Pre-recording: Capture current window if configured
+		if cfg.Focus.GetWindowCmd != "" {
+			fmt.Printf("[Focus] Executing GetWindowCmd: %s\n", cfg.Focus.GetWindowCmd)
+			out, err := exec.Command("sh", "-c", cfg.Focus.GetWindowCmd).Output()
+			if err != nil {
+				fmt.Printf("[Focus] GetWindowCmd failed: %v\n", err)
+			} else {
+				lastWindowOutput = strings.TrimSpace(string(out))
+				fmt.Printf("[Focus] Captured window info: %s\n", lastWindowOutput)
+			}
 		}
 
 		// Start Recording
@@ -186,6 +203,16 @@ func main() {
 		// Clipboard & Paste
 		fmt.Printf("[Logic] Hiding UI to restore focus...\n")
 		u.Hide()
+
+		// Restore Focus if configured
+		if cfg.Focus.RestoreFocusCmd != "" && lastWindowOutput != "" {
+			restoreCmd := strings.ReplaceAll(cfg.Focus.RestoreFocusCmd, "{{.Output}}", lastWindowOutput)
+			fmt.Printf("[Focus] Executing RestoreFocusCmd: %s\n", restoreCmd)
+			if err := exec.Command("sh", "-c", restoreCmd).Run(); err != nil {
+				fmt.Printf("[Focus] RestoreFocusCmd failed: %v\n", err)
+			}
+		}
+
 		time.Sleep(600 * time.Millisecond) // Wait for focus to return to original window
 
 		fmt.Printf("[Logic] Copying text to clipboard and triggering paste...\n")
